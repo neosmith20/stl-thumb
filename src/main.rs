@@ -12,8 +12,10 @@ use std::env;
 
 fn main() {
     // Workaround for issues with OpenGL 3.1 on Mesa 18.3
-    #[cfg(target_os = "linux")]
-    env::set_var("MESA_GL_VERSION_OVERRIDE", "2.1");
+    unsafe {
+        #[cfg(target_os = "linux")]
+        env::set_var("MESA_GL_VERSION_OVERRIDE", "2.1")
+    };
 
     let config = Config::new();
 

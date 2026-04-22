@@ -50,14 +50,11 @@ fn print_context_info(display: &impl Facade) {
     info!("Vendor: {}", ctx.get_opengl_vendor_string());
     info!("Renderer {}", ctx.get_opengl_renderer_string());
     info!("Free GPU Mem: {:?}", ctx.get_free_video_memory());
-    info!(
-        "Depth Bits: {:?}\n",
-        ctx.get_capabilities().depth_bits
-    );
+    info!("Depth Bits: {:?}\n", ctx.get_capabilities().depth_bits);
 }
 
 thread_local! {
-    static EVENT_LOOP: RefCell<Option<EventLoop<()>>> = RefCell::new(None);
+    static EVENT_LOOP: RefCell<Option<EventLoop<()>>> = const { RefCell::new(None) };
 }
 
 fn create_event_loop_once() -> EventLoop<()> {
@@ -187,7 +184,9 @@ pub fn render_to_window(config: Config) -> Result<(), Box<dyn Error>> {
     let mesh = Mesh::load(&config.model_filename, config.recalc_normals)?;
 
     let event_loop = EVENT_LOOP.with(|cell| {
-        cell.borrow_mut().take().unwrap_or_else(create_event_loop_once)
+        cell.borrow_mut()
+            .take()
+            .unwrap_or_else(create_event_loop_once)
     });
 
     let window_dim = PhysicalSize::new(config.width, config.height);
@@ -265,32 +264,41 @@ pub fn render_to_window(config: Config) -> Result<(), Box<dyn Error>> {
 pub fn render_to_image(config: &Config) -> Result<image::DynamicImage, Box<dyn Error>> {
     let mesh = Mesh::load(&config.model_filename, config.recalc_normals)?;
 
-    with_event_loop(|event_loop| -> Result<image::DynamicImage, Box<dyn Error>> {
-        let window_dim = PhysicalSize::new(config.width, config.height);
+    with_event_loop(
+        |event_loop| -> Result<image::DynamicImage, Box<dyn Error>> {
+            let window_dim = PhysicalSize::new(config.width, config.height);
 
-        let (_window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
-            .set_window_builder(
-                winit::window::WindowAttributes::default()
-                    .with_title("stl-thumb")
-                    .with_inner_size(window_dim)
-                    .with_visible(false),
+            let (_window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
+                .set_window_builder(
+                    winit::window::WindowAttributes::default()
+                        .with_title("stl-thumb")
+                        .with_inner_size(window_dim)
+                        .with_visible(false),
+                )
+                .build(event_loop);
+
+            print_context_info(&display);
+
+            let texture = glium::Texture2d::empty(&display, config.width, config.height).unwrap();
+            let depthtexture =
+                glium::texture::DepthTexture2d::empty(&display, config.width, config.height)
+                    .unwrap();
+            let mut framebuffer = glium::framebuffer::SimpleFrameBuffer::with_depth_buffer(
+                &display,
+                &texture,
+                &depthtexture,
             )
-            .build(event_loop);
+            .unwrap();
 
-        print_context_info(&display);
-
-        let texture = glium::Texture2d::empty(&display, config.width, config.height).unwrap();
-        let depthtexture =
-            glium::texture::DepthTexture2d::empty(&display, config.width, config.height).unwrap();
-        let mut framebuffer = glium::framebuffer::SimpleFrameBuffer::with_depth_buffer(
-            &display,
-            &texture,
-            &depthtexture,
-        )
-        .unwrap();
-
-        Ok(render_pipeline(&display, config, &mesh, &mut framebuffer, &texture))
-    })
+            Ok(render_pipeline(
+                &display,
+                config,
+                &mesh,
+                &mut framebuffer,
+                &texture,
+            ))
+        },
+    )
 }
 
 pub fn render_to_file(config: &Config) -> Result<(), Box<dyn Error>> {
@@ -327,15 +335,17 @@ pub fn render_to_file(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn render_to_buffer(
     buf_ptr: *mut u8,
     width: u32,
     height: u32,
     model_filename_c: *const c_char,
 ) -> bool {
-    #[cfg(target_os = "linux")]
-    env::set_var("MESA_GL_VERSION_OVERRIDE", "2.1");
+    unsafe {
+        #[cfg(target_os = "linux")]
+        env::set_var("MESA_GL_VERSION_OVERRIDE", "2.1")
+    };
 
     if buf_ptr.is_null() {
         error!("Image buffer pointer is null");
